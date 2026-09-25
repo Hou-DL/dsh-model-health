@@ -114,3 +114,25 @@ describe("route + failure surfacing", () => {
     expect(s.error).toContain("usage×1");
   });
 });
+
+describe("listRoutes (currently available models from the llm service)", () => {
+  it("enumerates registered providers x advertised models", async () => {
+    const ctx = {
+      llm: {
+        listProviders: () => [{ id: "xiaomi", name: "Xiaomi" }, { id: "p2", name: "P2" }],
+        listModels: async (provider: string) =>
+          provider === "xiaomi"
+            ? [{ provider: "xiaomi", id: "mimo-v2.6-pro", name: "MiMo v2.6 Pro" }]
+            : [],
+      },
+    };
+    const runner = new SpeedTestRunner(ctx);
+    const routes = await runner.listRoutes();
+    expect(routes).toEqual([{ provider: "xiaomi", model: "mimo-v2.6-pro" }]);
+  });
+
+  it("returns [] when the llm service is missing", async () => {
+    const runner = new SpeedTestRunner({});
+    expect(await runner.listRoutes()).toEqual([]);
+  });
+});

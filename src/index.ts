@@ -41,7 +41,7 @@ export function apply(ctx: any) {
         }
       };
       // speed-test: GET = state + known models, POST = start one probe
-      const speedHandler = (req: any, res: any) => {
+      const speedHandler = async (req: any, res: any) => {
         const json = (code: number, body: any) => {
           res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" });
           res.end(JSON.stringify(body));
@@ -61,7 +61,10 @@ export function apply(ctx: any) {
           });
           return;
         }
-        json(200, { ok: true, test: speed.state(), models: store.getModels() });
+        // prefer the CURRENTLY available models from the llm registry; fall
+        // back to history-derived routes when the service is unavailable
+        const routes = (await speed.listRoutes().catch(() => [])) ?? [];
+        json(200, { ok: true, test: speed.state(), models: routes.length > 0 ? routes : store.getModels() });
       };
       unregisterRoute = wsCtx.webServer.register({ kind: "exact", path: "/api/dsh-model-health/health.json", handler });
       speedUnregister = wsCtx.webServer.register({ kind: "exact", path: "/api/dsh-model-health/speed-test", handler: speedHandler });

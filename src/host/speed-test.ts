@@ -42,6 +42,28 @@ export class SpeedTestRunner {
     return { ...this.st };
   }
 
+  /**
+   * Currently AVAILABLE routes straight from the llm service registry:
+   * registered providers x their advertised models. This mirrors the user's
+   * live model configuration (NOT historical session usage).
+   */
+  async listRoutes(): Promise<Array<{ provider: string; model: string }>> {
+    const llm = this.ctx?.llm;
+    if (!llm?.listProviders || !llm?.listModels) return [];
+    const out: Array<{ provider: string; model: string }> = [];
+    for (const p of llm.listProviders()) {
+      const provider = typeof p === "string" ? p : p?.id;
+      if (!provider) continue;
+      try {
+        const infos = await llm.listModels(provider);
+        for (const info of infos ?? []) {
+          if (info?.id) out.push({ provider, model: info.id });
+        }
+      } catch {}
+    }
+    return out;
+  }
+
   /** Start a test; false when one is already in flight. */
   start(provider: string, model: string): boolean {
     if (this.running) return false;
