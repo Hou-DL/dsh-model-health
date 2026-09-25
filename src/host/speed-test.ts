@@ -89,8 +89,11 @@ export class SpeedTestRunner {
     try {
       const llm = this.ctx?.llm;
       if (!llm?.stream) throw new Error("llm service unavailable on this host");
+      // GenerateOptions is FLAT: provider/model are TOP-LEVEL fields (no nested
+      // route object — that was misread from title-llm's local variable)
       const options = {
-        route: { provider, model: bareModel },
+        provider,
+        model: bareModel,
         messages: [
           {
             id: crypto.randomUUID(),

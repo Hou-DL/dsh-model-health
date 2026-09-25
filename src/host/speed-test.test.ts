@@ -88,7 +88,9 @@ describe("route + failure surfacing", () => {
     const runner = new SpeedTestRunner(ctx);
     runner.start("xiaomi", "xiaomi/mimo-v2.6-pro");
     await settle(runner);
-    expect(captured.route).toEqual({ provider: "xiaomi", model: "mimo-v2.6-pro" });
+    // GenerateOptions is FLAT: provider/model are top-level fields
+    expect(captured.provider).toBe("xiaomi");
+    expect(captured.model).toBe("mimo-v2.6-pro");
   });
 
   it("surfaces a provider finish error instead of a generic no-output", async () => {
