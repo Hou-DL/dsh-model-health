@@ -62,7 +62,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
         if (!res.ok) return;
         const j = await res.json();
         if (!alive.current) return;
-        setModels(Array.isArray(j.models) ? j.models : []);
+        setModels(Array.isArray(j.models) ? j.models.filter((m: any) => m?.provider && m?.model) : []);
         if (j.test) setSt(j.test);
         setSel((cur) => {
           if (cur) return cur;

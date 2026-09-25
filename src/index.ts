@@ -52,7 +52,9 @@ export function apply(ctx: any) {
           req.on("end", () => {
             try {
               const { provider, model } = JSON.parse(body || "{}");
-              if (!provider || !model) throw new Error("provider and model are required");
+              if (!provider || !model || provider === "undefined" || model === "undefined") {
+                throw new Error(`invalid route: provider=${JSON.stringify(provider ?? null)}, model=${JSON.stringify(model ?? null)}`);
+              }
               const ok = speed.start(String(provider), String(model));
               json(ok ? 200 : 409, { ok, test: speed.state() });
             } catch (e: any) {

@@ -122,12 +122,13 @@ describe("listRoutes (currently available models from the llm service)", () => {
         listProviders: () => [{ id: "xiaomi", name: "Xiaomi" }, { id: "p2", name: "P2" }],
         listModels: async (provider: string) =>
           provider === "xiaomi"
-            ? [{ provider: "xiaomi", id: "mimo-v2.6-pro", name: "MiMo v2.6 Pro" }]
+            ? [{ provider: "xiaomi", id: "mimo-v2.6-pro", name: "MiMo v2.6 Pro" }, { provider: "xiaomi", name: "no id" }]
             : [],
       },
     };
     const runner = new SpeedTestRunner(ctx);
     const routes = await runner.listRoutes();
+    // entries without an id are skipped — "undefined" must never reach a route
     expect(routes).toEqual([{ provider: "xiaomi", model: "mimo-v2.6-pro" }]);
   });
 
