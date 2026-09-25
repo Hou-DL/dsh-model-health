@@ -69,6 +69,18 @@ export class HealthStore {
     return this.initialized;
   }
 
+  /** Distinct provider/model routes seen in history (for the speed-test picker). */
+  getModels(): Array<{ provider: string; model: string }> {
+    const m = new Map<string, string>();
+    for (const s of this.samples) {
+      if (s.model && s.provider) m.set(s.model, s.provider);
+      else if (s.model && !m.has(s.model)) m.set(s.model, "");
+    }
+    return [...m.entries()]
+      .map(([model, provider]) => ({ provider, model }))
+      .sort((a, b) => (a.model < b.model ? -1 : 1));
+  }
+
   getDays(): Map<string, DayHealth> {
     if (!this.initialized) return new Map();
     const now = Date.now();

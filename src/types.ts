@@ -35,3 +35,16 @@ export type PersistedFile = {
   version: 1;
   days: Record<string, Record<string, ModelHealth>>;
 };
+
+/** Live state of one active speed-test probe (Phase 2). */
+export type SpeedTestState = {
+  status: "idle" | "running" | "done" | "error";
+  provider: string;
+  model: string;
+  startedAt: number | null;
+  ttftMs: number | null;
+  decodeMs: number | null;
+  outputTokens: number;
+  tokPerSec: number | null;
+  error: string | null;
+};

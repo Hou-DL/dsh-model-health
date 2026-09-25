@@ -3,6 +3,7 @@ declare const __PLUGIN_VERSION__: string;
 import * as React from "react";
 import { HealthCard } from "./HealthCard.js";
 import { TrendChart } from "./TrendChart.js";
+import { SpeedTest } from "./SpeedTest.js";
 import { useHealthData, getAutoRefreshMinutes, setAutoRefreshMinutes } from "./hooks.js";
 
 type Props = {
@@ -119,6 +120,8 @@ export function SettingsSection({ t }: Props) {
           {tt("health.empty")}
         </div>
       )}
+
+      <SpeedTest t={tt} isEn={lang === "en"} />
     </section>
   );
 }

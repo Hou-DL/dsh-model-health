@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { HealthCard } from "./HealthCard.js";
 import { TrendChart } from "./TrendChart.js";
+import { SpeedTest } from "./SpeedTest.js";
 import { toDayKey, addDays } from "../date-bucket.js";
 import type { DayHealth, ModelHealth } from "../types.js";
 
@@ -89,6 +90,10 @@ describe("render walk (deep, with data)", () => {
     const thTexts = card.filter((n) => n.type === "th").map((n) => JSON.stringify(n.props?.children ?? n.children));
     const joined = thTexts.join("|");
     expect(joined.indexOf("card.speed")).toBeLessThan(joined.indexOf("card.ttft"));
+  });
+
+  it("SpeedTest renders its picker and tiles without throwing", () => {
+    renderAndCheck(SpeedTest({ t, isEn: false } as any));
   });
 
   it("renders with empty models and with all-null metrics without throwing", () => {

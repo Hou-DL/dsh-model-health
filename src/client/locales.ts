@@ -28,6 +28,15 @@ export const zh: Record<string, string> = {
   "trend.range30": "近一月",
   "trend.empty": "所选范围内暂无数据",
   "trend.legend.hint": "点击图例可显示/隐藏",
+  "speed.title": "模型测速",
+  "speed.hint": "轻量探测：一条数数指令，约消耗几十个 token",
+  "speed.model": "模型",
+  "speed.run": "开始测速",
+  "speed.running": "测速中",
+  "speed.ttft": "首字延迟",
+  "speed.output": "输出速度",
+  "speed.failed": "测速失败",
+  "speed.empty": "暂无历史模型，先跑一次对话",
 };
 
 export const en: Record<string, string> = {
@@ -60,6 +69,15 @@ export const en: Record<string, string> = {
   "trend.range30": "30 days",
   "trend.empty": "No data in this range",
   "trend.legend.hint": "Click legend to toggle",
+  "speed.title": "Model Speed Test",
+  "speed.hint": "Light probe: one counting prompt, costs a few dozen tokens",
+  "speed.model": "Model",
+  "speed.run": "Run test",
+  "speed.running": "Testing",
+  "speed.ttft": "TTFT",
+  "speed.output": "Output speed",
+  "speed.failed": "Test failed",
+  "speed.empty": "No known models yet",
 };
 
 export type LocaleDict = typeof zh;
