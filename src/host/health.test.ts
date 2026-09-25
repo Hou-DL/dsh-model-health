@@ -319,3 +319,42 @@ describe("session file discovery (read ALL versions, newest wins per step)", () 
     }
   });
 });
+
+describe("DSH 0.1.7 pre-adaptation (format v4)", () => {
+  it("reads session.v4.jsonl.zstd logs (0.1.7 canonical generation)", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { zstdCompressSync } = await import("node:zlib");
+    const home = mkdtempSync(join(tmpdir(), "mh-v417-"));
+    const sid = "v4-session";
+    const dir = join(home, "sessions", "--ws--", sid);
+    mkdirSync(dir, { recursive: true });
+    // v4 physical rows keep the v2 framing; header carries version: 4
+    const lines = [
+      JSON.stringify({ type: "session", version: 4, id: sid, createdAt: 1, isSeeded: false, delegationDepth: 0 }),
+      JSON.stringify({ ...ev("step/start", t0, { turn: 1, step: 1 }), seq: 1 }),
+      JSON.stringify({ ...ev("assistant/message", t0 + 1600, {
+        turn: 1, step: 1,
+        message: { source: { provider: "pV4", model: "mV4" } },
+        usage: { inputTokens: 8, outputTokens: 40 },
+        stream: [{ type: "chunk", time: t0 + 600, chunk: { type: "text-delta", index: 0, text: "v4" } }],
+      }), seq: 2 }),
+    ].join("\n") + "\n";
+    writeFileSync(join(dir, "session.v4.jsonl.zstd"), zstdCompressSync(Buffer.from(lines)));
+    const prev = process.env.DSH_HOME;
+    process.env.DSH_HOME = home;
+    try {
+      const { readAllHealthSamples } = await import("./session-reader.js");
+      const out = await readAllHealthSamples({ sessions: { list: async () => [] } } as any);
+      expect(out.length).toBe(1);
+      expect(out[0].model).toBe("mV4");
+      expect(out[0].ttftMs).toBe(600);
+      expect(out[0].decodeMs).toBe(1000);
+    } finally {
+      if (prev === undefined) delete process.env.DSH_HOME;
+      else process.env.DSH_HOME = prev;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

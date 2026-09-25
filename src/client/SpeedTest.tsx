@@ -33,7 +33,7 @@ function useCountUp(target: number | null, run: boolean, dur = 800): number {
   return v;
 }
 
-const ARC_R = 86;
+const ARC_R = 104;
 const ARC_LEN = Math.PI * ARC_R;
 
 /**
@@ -119,8 +119,6 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
     }
   };
 
-  if (!open) return null;
-
   const done = st?.status === "done";
   const failed = st?.status === "error" || !!err;
   const live = st?.tokPerSec ?? null;
@@ -128,7 +126,11 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
   // adaptive gauge max: at least 150 tok/s, gently tracks the live value
   const gaugeMax = Math.max(150, Math.ceil(((live ?? 0) * 1.25) / 50) * 50);
   const progress = shown == null ? 0 : Math.min(1, shown / gaugeMax);
+  // hooks MUST run before any conditional return (open flips changed the
+  // hook count once and white-screened the whole panel)
   const ttftShown = useCountUp(st?.ttftMs ?? null, done || running);
+
+  if (!open) return null;
   const selectStyle: React.CSSProperties = {
     padding: "6px 10px",
     fontSize: 13,
@@ -162,8 +164,8 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           background: "var(--dsw-alias-bg-layer-3)",
           border: "1px solid var(--dsw-alias-border-l2)",
           borderRadius: 14,
-          width: 520,
-          maxWidth: "92vw",
+          width: 760,
+          maxWidth: "94vw",
           boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
           padding: 20,
           display: "flex",
@@ -215,7 +217,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
 
         {/* gauge: big live/final tok/s on a semicircular arc */}
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 4 }}>
-          <div style={{ position: "relative", width: 260 }}>
+          <div style={{ position: "relative", width: 340 }}>
             <svg viewBox="0 0 220 126" width="100%" style={{ display: "block" }}>
               <path
                 d={`M ${110 - ARC_R} 116 A ${ARC_R} ${ARC_R} 0 0 1 ${110 + ARC_R} 116`}
@@ -241,7 +243,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
             <div style={{ position: "absolute", left: 0, right: 0, bottom: 6, textAlign: "center" }}>
               <div
                 style={{
-                  fontSize: 40,
+                  fontSize: 48,
                   fontWeight: 700,
                   fontVariantNumeric: "tabular-nums",
                   color: "var(--dsw-alias-label-primary)",
