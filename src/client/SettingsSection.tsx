@@ -12,6 +12,7 @@ type Props = {
 };
 
 export function SettingsSection({ t }: Props) {
+  const [speedOpen, setSpeedOpen] = React.useState(false);
   const { data, refreshing, lastRefresh, refresh } = useHealthData();
   const [intervalMins, setIntervalMins] = React.useState(() => getAutoRefreshMinutes());
   const [lang, setLang] = React.useState<"zh" | "en">(() => {
@@ -71,6 +72,20 @@ export function SettingsSection({ t }: Props) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <button
+          onClick={() => setSpeedOpen(true)}
+          style={{
+            padding: "6px 14px",
+            fontSize: 13,
+            borderRadius: 8,
+            border: "1px solid var(--dsw-alias-border-l2)",
+            background: "var(--dsw-alias-bg-layer-3)",
+            color: "var(--dsw-alias-label-primary)",
+            cursor: "pointer",
+          }}
+        >
+          ⚡ {tt("speed.title")}
+        </button>
+        <button
           onClick={() => void refresh()}
           disabled={refreshing}
           style={{
@@ -121,7 +136,7 @@ export function SettingsSection({ t }: Props) {
         </div>
       )}
 
-      <SpeedTest t={tt} isEn={lang === "en"} />
+      <SpeedTest t={tt} isEn={lang === "en"} open={speedOpen} onClose={() => setSpeedOpen(false)} />
     </section>
   );
 }

@@ -60,6 +60,7 @@ export class SpeedTestRunner {
     let first: number | null = null;
     let usageTime: number | null = null;
     let tokens = 0;
+    let deltas = 0;
     try {
       const llm = this.ctx?.llm;
       if (!llm?.stream) throw new Error("llm service unavailable on this host");
@@ -82,14 +83,22 @@ export class SpeedTestRunner {
         if ((type === "text-delta" || type === "reasoning-delta")) {
           if (typeof chunk.text === "string" && chunk.text.trim() !== "") {
             if (first == null) first = now;
+            deltas++;
           }
         } else if (type === "tool-call-delta") {
           if (first == null) first = now;
+          deltas++;
         } else if (type === "usage") {
           usageTime = now;
           tokens = chunk.usage?.outputTokens ?? tokens;
         } else if (type === "finish") {
           break;
+        }
+        // live interim metrics (speedtest-style rising number): each delta is
+        // ~one token, so tok/s ≈ deltas / (now − first)
+        if (first != null && now > first) {
+          const liveTokPerSec = Math.round((deltas / (now - first)) * 1000 * 100) / 100;
+          this.st = { ...this.st, ttftMs: first - t0, tokPerSec: liveTokPerSec };
         }
       }
       if (usageTime == null) usageTime = Date.now();

@@ -2,7 +2,7 @@ import { HealthStore } from "./host/store.ts";
 import { SpeedTestRunner } from "./host/speed-test.ts";
 
 export const name = "dsh-model-health";
-export const inject = ["sessions"] as const;
+export const inject = ["sessions", "llm"] as const;
 
 export function apply(ctx: any) {
   const store = new HealthStore(ctx);

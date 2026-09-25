@@ -1,34 +1,19 @@
 import * as React from "react";
 import { formatMs } from "./trend.js";
-
-type TestState = {
-  status: "idle" | "running" | "done" | "error";
-  provider: string;
-  model: string;
-  startedAt: number | null;
-  ttftMs: number | null;
-  decodeMs: number | null;
-  outputTokens: number;
-  tokPerSec: number | null;
-  error: string | null;
-};
+import type { SpeedTestState } from "../types.js";
 
 type KnownModel = { provider: string; model: string };
 
-/** Pulse + shimmer styles for the running state (scoped keyframe names). */
+/** Speedtest-dialog styles: pulsing probe dot, indeterminate ring spin. */
 const SPEED_CSS = `
 @keyframes mhc-pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.2); } }
-@keyframes mhc-shimmer { from { background-position: -320px 0; } to { background-position: 320px 0; } }
+@keyframes mhc-spin { to { transform: rotate(360deg); } }
 .mhc-pulse { animation: mhc-pulse 1s ease-in-out infinite; }
-.mhc-shimmer {
-  background: linear-gradient(90deg, var(--dsw-alias-border-l2) 25%, var(--dsw-alias-label-tertiary) 50%, var(--dsw-alias-border-l2) 75%);
-  background-size: 320px 100%;
-  animation: mhc-shimmer 1.1s linear infinite;
-}
+.mhc-spin { animation: mhc-spin 1.1s linear infinite; transform-origin: 50% 50%; }
 `;
 
-/** Count-up animation for result numbers (ease-out cubic). */
-function useCountUp(target: number | null, run: boolean, dur = 900): number {
+/** Count-up for the TTFT chip (ease-out cubic). */
+function useCountUp(target: number | null, run: boolean, dur = 800): number {
   const [v, setV] = React.useState(0);
   React.useEffect(() => {
     if (!run || target == null) {
@@ -39,8 +24,7 @@ function useCountUp(target: number | null, run: boolean, dur = 900): number {
     const t0 = performance.now();
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / dur);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setV(target * eased);
+      setV(target * (1 - Math.pow(1 - p, 3)));
       if (p < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -49,21 +33,28 @@ function useCountUp(target: number | null, run: boolean, dur = 900): number {
   return v;
 }
 
+const ARC_R = 86;
+const ARC_LEN = Math.PI * ARC_R;
+
 /**
- * Phase 2 speed test: pick a known provider/model route, fire a token-frugal
- * counting prompt through the host llm service, and show TTFT + output speed
- * with a pulsing/shimmer running state and count-up result tiles.
+ * Phase 2 speed test as a speedtest-style modal: pick a known route, fire a
+ * token-frugal counting prompt via the host llm service, and watch the big
+ * tok/s number climb live on a semicircular gauge (the host streams interim
+ * metrics per delta), then read TTFT + tokens. Entry button sits at the top
+ * of the section; the dialog is closed by overlay click or ✕.
  */
-export function SpeedTest({ t, isEn = false }: { t: (k: string, p?: any) => string; isEn?: boolean }) {
+export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p?: any) => string; isEn?: boolean; open: boolean; onClose: () => void }) {
   const [models, setModels] = React.useState<KnownModel[]>([]);
   const [sel, setSel] = React.useState<string>("");
-  const [st, setSt] = React.useState<TestState | null>(null);
+  const [st, setSt] = React.useState<SpeedTestState | null>(null);
   const [running, setRunning] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [elapsed, setElapsed] = React.useState(0);
   const alive = React.useRef(true);
 
+  // load known routes + current state when the dialog opens
   React.useEffect(() => {
+    if (!open) return;
     alive.current = true;
     (async () => {
       try {
@@ -73,24 +64,25 @@ export function SpeedTest({ t, isEn = false }: { t: (k: string, p?: any) => stri
         if (!alive.current) return;
         setModels(Array.isArray(j.models) ? j.models : []);
         if (j.test) setSt(j.test);
-        const first = (j.models ?? [])[0];
-        if (first) setSel(`${first.provider}|${first.model}`);
+        setSel((cur) => {
+          if (cur) return cur;
+          const first = (j.models ?? [])[0];
+          return first ? `${first.provider}|${first.model}` : "";
+        });
       } catch {}
     })();
     return () => {
       alive.current = false;
     };
-  }, []);
+  }, [open]);
 
   // elapsed ticker while running
   React.useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => {
-      const startedAt = st?.startedAt ?? Date.now();
-      setElapsed(Date.now() - startedAt);
-    }, 100);
+    if (!open || !running) return;
+    const startedAt = st?.startedAt ?? Date.now();
+    const timer = setInterval(() => setElapsed(Date.now() - startedAt), 100);
     return () => clearInterval(timer);
-  }, [running, st?.startedAt]);
+  }, [open, running, st?.startedAt]);
 
   const start = async () => {
     if (running || !sel) return;
@@ -112,9 +104,8 @@ export function SpeedTest({ t, isEn = false }: { t: (k: string, p?: any) => stri
         setErr(j.error ?? "busy");
         return;
       }
-      // poll until the probe settles
       while (alive.current) {
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 500));
         const p = await fetch("/api/dsh-model-health/speed-test", { cache: "no-store" });
         const pj = await p.json();
         if (!alive.current) return;
@@ -128,78 +119,75 @@ export function SpeedTest({ t, isEn = false }: { t: (k: string, p?: any) => stri
     }
   };
 
+  if (!open) return null;
+
   const done = st?.status === "done";
-  const speedShown = useCountUp(st?.tokPerSec ?? null, done);
-  const ttftShown = useCountUp(st?.ttftMs ?? null, done);
-  const speedBar = Math.min(100, ((st?.tokPerSec ?? 0) / Math.max(100, st?.tokPerSec ?? 100)) * 100);
-  const ttftBar = Math.min(100, ((st?.ttftMs ?? 0) / Math.max(2000, st?.ttftMs ?? 2000)) * 100);
-
-  const tile = (label: string, value: string, barPct: number, color: string) => (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 150,
-        border: "1px solid var(--dsw-alias-border-l2)",
-        borderRadius: 10,
-        padding: "10px 12px",
-        background: "var(--dsw-alias-bg-layer-2)",
-      }}
-    >
-      <div style={{ fontSize: 11, color: "var(--dsw-alias-label-tertiary)", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--dsw-alias-label-primary)", lineHeight: 1.2 }}>
-        {value}
-      </div>
-      <div style={{ marginTop: 8, height: 6, borderRadius: 3, background: "var(--dsw-alias-border-l2)", overflow: "hidden" }}>
-        <div
-          style={{
-            width: `${barPct}%`,
-            height: "100%",
-            borderRadius: 3,
-            background: color,
-            transition: "width .9s cubic-bezier(.22,1,.36,1)",
-          }}
-        />
-      </div>
-    </div>
-  );
-
+  const failed = st?.status === "error" || !!err;
+  const live = st?.tokPerSec ?? null;
+  const shown = done || running ? (live != null ? live : 0) : null;
+  // adaptive gauge max: at least 150 tok/s, gently tracks the live value
+  const gaugeMax = Math.max(150, Math.ceil(((live ?? 0) * 1.25) / 50) * 50);
+  const progress = shown == null ? 0 : Math.min(1, shown / gaugeMax);
+  const ttftShown = useCountUp(st?.ttftMs ?? null, done || running);
   const selectStyle: React.CSSProperties = {
-    padding: "5px 8px",
+    padding: "6px 10px",
     fontSize: 13,
-    borderRadius: 6,
+    borderRadius: 8,
     border: "1px solid var(--dsw-alias-border-l2)",
     background: "var(--dsw-alias-bg-layer-3)",
     color: "var(--dsw-alias-label-primary)",
-    maxWidth: 320,
+    flex: 1,
+    minWidth: 0,
   };
 
   return (
     <div
+      onClick={onClose}
       style={{
-        border: "1px solid var(--dsw-alias-border-l2)",
-        background: "var(--dsw-alias-bg-layer-3)",
-        borderRadius: 12,
-        overflow: "hidden",
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
-      <style>{SPEED_CSS}</style>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("speed.title")}
+        onClick={(e) => e.stopPropagation()}
         style={{
-          padding: "12px 16px 8px",
-          borderBottom: "1px solid var(--dsw-alias-border-l2)",
+          background: "var(--dsw-alias-bg-layer-3)",
+          border: "1px solid var(--dsw-alias-border-l2)",
+          borderRadius: 14,
+          width: 520,
+          maxWidth: "92vw",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
+          padding: 20,
           display: "flex",
-          alignItems: "center",
-          gap: 8,
+          flexDirection: "column",
+          gap: 14,
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary)" }}>{t("speed.title")}</span>
-        <span style={{ fontSize: 12, color: "var(--dsw-alias-label-tertiary)" }}>{t("speed.hint")}</span>
-      </div>
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--dsw-alias-label-primary)" }}>
+            ⚡ {t("speed.title")}
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="close"
+            style={{ border: "none", background: "transparent", fontSize: 16, cursor: "pointer", color: "var(--dsw-alias-label-tertiary)" }}
+          >
+            ✕
+          </button>
+        </div>
 
-      <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* picker + run button */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle} title={sel.split("|")[1] ?? sel}>
+        {/* picker + run */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle} disabled={running}>
             {models.length === 0 ? <option value="">{t("speed.empty")}</option> : null}
             {models.map((m) => (
               <option key={`${m.provider}|${m.model}`} value={`${m.provider}|${m.model}`}>
@@ -211,48 +199,122 @@ export function SpeedTest({ t, isEn = false }: { t: (k: string, p?: any) => stri
             onClick={() => void start()}
             disabled={running || !sel}
             style={{
-              padding: "6px 16px",
+              padding: "6px 18px",
               fontSize: 13,
               borderRadius: 8,
               border: "1px solid var(--dsw-alias-border-l2)",
-              background: running ? "var(--dsw-alias-bg-layer-2)" : "var(--dsw-alias-bg-layer-3)",
-              color: "var(--dsw-alias-label-primary)",
+              background: running ? "var(--dsw-alias-bg-layer-2)" : "var(--dsw-alias-label-primary)",
+              color: running ? "var(--dsw-alias-label-secondary)" : "var(--dsw-alias-bg-layer-3)",
               cursor: running ? "wait" : "pointer",
+              whiteSpace: "nowrap",
             }}
           >
             {running ? `${t("speed.running")} ${(elapsed / 1000).toFixed(1)}s` : t("speed.run")}
           </button>
-          {running ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--dsw-alias-label-secondary)" }}>
-              <span className="mhc-pulse" style={{ width: 10, height: 10, borderRadius: 5, background: "#40c463", display: "inline-block" }} />
-              <span
-                className="mhc-shimmer"
-                style={{ width: 140, height: 6, borderRadius: 3, display: "inline-block" }}
-              />
-            </span>
-          ) : null}
         </div>
 
-        {/* results */}
-        {done ? (
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {tile(t("speed.output"), `${speedShown.toFixed(1)} tok/s`, speedBar, "#40c463")}
-            {tile(t("speed.ttft"), formatMs(ttftShown), ttftBar, "#4c8dff")}
+        {/* gauge: big live/final tok/s on a semicircular arc */}
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 4 }}>
+          <div style={{ position: "relative", width: 260 }}>
+            <svg viewBox="0 0 220 126" width="100%" style={{ display: "block" }}>
+              <path
+                d={`M ${110 - ARC_R} 116 A ${ARC_R} ${ARC_R} 0 0 1 ${110 + ARC_R} 116`}
+                fill="none"
+                stroke="var(--dsw-alias-border-l2)"
+                strokeWidth={12}
+                strokeLinecap="round"
+              />
+              <path
+                d={`M ${110 - ARC_R} 116 A ${ARC_R} ${ARC_R} 0 0 1 ${110 + ARC_R} 116`}
+                fill="none"
+                stroke={failed ? "#e5534b" : done ? "#40c463" : "#4c8dff"}
+                strokeWidth={12}
+                strokeLinecap="round"
+                strokeDasharray={ARC_LEN}
+                strokeDashoffset={ARC_LEN * (1 - (running || done ? progress : 0))}
+                style={{ transition: "stroke-dashoffset .6s ease, stroke .3s ease" }}
+              />
+              {running ? (
+                <circle cx={110} cy={116} r={5} fill="#4c8dff" className="mhc-pulse" />
+              ) : null}
+            </svg>
+            <div style={{ position: "absolute", left: 0, right: 0, bottom: 6, textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: 40,
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "var(--dsw-alias-label-primary)",
+                  lineHeight: 1,
+                }}
+              >
+                {shown == null ? "—" : shown.toFixed(1)}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--dsw-alias-label-tertiary)", marginTop: 4 }}>tok/s</div>
+            </div>
+            {running ? (
+              <span
+                className="mhc-spin"
+                style={{
+                  position: "absolute",
+                  right: 18,
+                  top: 4,
+                  width: 14,
+                  height: 14,
+                  border: "2px solid var(--dsw-alias-border-l2)",
+                  borderTopColor: "#4c8dff",
+                  borderRadius: "50%",
+                  display: "inline-block",
+                }}
+              />
+            ) : null}
           </div>
-        ) : null}
-        {done && st ? (
-          <div style={{ fontSize: 11, color: "var(--dsw-alias-label-tertiary)", marginTop: -6 }}>
-            {isEn
-              ? `${st.model} · ${st.outputTokens} tok out · window ${(st.decodeMs! / 1000).toFixed(2)}s`
-              : `${st.model} · 输出 ${st.outputTokens} tok · 计时窗口 ${(st.decodeMs! / 1000).toFixed(2)}s`}
-          </div>
-        ) : null}
+        </div>
 
-        {st?.status === "error" || err ? (
-          <div style={{ fontSize: 12, color: "#e5534b" }}>
+        {/* status / result chips */}
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontSize: 12,
+              padding: "4px 12px",
+              borderRadius: 999,
+              border: "1px solid var(--dsw-alias-border-l2)",
+              color: "var(--dsw-alias-label-secondary)",
+            }}
+          >
+            {t("speed.ttft")}: {st?.ttftMs != null ? formatMs(ttftShown) : "—"}
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              padding: "4px 12px",
+              borderRadius: 999,
+              border: "1px solid var(--dsw-alias-border-l2)",
+              color: "var(--dsw-alias-label-secondary)",
+            }}
+          >
+            {isEn ? "Output" : "输出"}: {st?.outputTokens ?? 0} tok
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              padding: "4px 12px",
+              borderRadius: 999,
+              border: "1px solid var(--dsw-alias-border-l2)",
+              color: "var(--dsw-alias-label-secondary)",
+            }}
+          >
+            {st?.model || "—"}
+          </span>
+        </div>
+
+        {failed ? (
+          <div style={{ fontSize: 12, color: "#e5534b", textAlign: "center" }}>
             {t("speed.failed")}: {err ?? st?.error}
           </div>
         ) : null}
+
+        <div style={{ fontSize: 11, color: "var(--dsw-alias-label-tertiary)", textAlign: "center" }}>{t("speed.hint")}</div>
       </div>
     </div>
   );
