@@ -61,11 +61,14 @@ export class SpeedTestRunner {
     let usageTime: number | null = null;
     let tokens = 0;
     let deltas = 0;
+    const seen: Record<string, number> = {};
+    // models are often recorded as "provider/model"; the route wants the bare name
+    const bareModel = model.startsWith(`${provider}/`) ? model.slice(provider.length + 1) : model;
     try {
       const llm = this.ctx?.llm;
       if (!llm?.stream) throw new Error("llm service unavailable on this host");
       const options = {
-        route: { provider, model },
+        route: { provider, model: bareModel },
         messages: [
           {
             id: crypto.randomUUID(),
@@ -80,6 +83,7 @@ export class SpeedTestRunner {
         const now = Date.now();
         if (now > deadline) throw new Error(`speed test timed out after ${TIMEOUT_MS / 1000}s`);
         const type = chunk?.type;
+        seen[type ?? "unknown"] = (seen[type ?? "unknown"] ?? 0) + 1;
         if ((type === "text-delta" || type === "reasoning-delta")) {
           if (typeof chunk.text === "string" && chunk.text.trim() !== "") {
             if (first == null) first = now;
@@ -92,6 +96,10 @@ export class SpeedTestRunner {
           usageTime = now;
           tokens = chunk.usage?.outputTokens ?? tokens;
         } else if (type === "finish") {
+          const kind = chunk.reason?.kind;
+          if (kind === "error" || kind === "aborted") {
+            throw new Error(String(chunk.reason?.failure?.message ?? `provider stream ${kind}`));
+          }
           break;
         }
         // live interim metrics (speedtest-style rising number): each delta is
@@ -102,7 +110,10 @@ export class SpeedTestRunner {
         }
       }
       if (usageTime == null) usageTime = Date.now();
-      if (first == null) throw new Error("model produced no output within the timeout");
+      if (first == null) {
+        const seenStr = Object.entries(seen).map(([k, v]) => `${k}×${v}`).join(", ") || "none";
+        throw new Error(`model produced no output (chunks seen: ${seenStr})`);
+      }
       const m = computeMetrics(t0, first, usageTime, tokens);
       this.st = {
         status: "done", provider, model, startedAt: t0,

@@ -69,3 +69,48 @@ describe("SpeedTestRunner", () => {
     expect(s.error).toContain("llm");
   });
 });
+
+describe("route + failure surfacing", () => {
+  it("strips the provider prefix from the model for the route", async () => {
+    let captured: any = null;
+    const ctx = {
+      llm: {
+        async *stream(options: any) {
+          captured = options;
+          await sleep(20);
+          yield { type: "text-delta", index: 0, text: "ok" };
+          await sleep(20);
+          yield { type: "usage", usage: { outputTokens: 5 } };
+          yield { type: "finish", reason: { kind: "stop" } };
+        },
+      },
+    };
+    const runner = new SpeedTestRunner(ctx);
+    runner.start("xiaomi", "xiaomi/mimo-v2.6-pro");
+    await settle(runner);
+    expect(captured.route).toEqual({ provider: "xiaomi", model: "mimo-v2.6-pro" });
+  });
+
+  it("surfaces a provider finish error instead of a generic no-output", async () => {
+    const ctx = fakeCtx([
+      { delay: 10, chunk: { type: "finish", reason: { kind: "error", failure: { message: "upstream 502" } } } },
+    ]);
+    const runner = new SpeedTestRunner(ctx);
+    runner.start("p", "m");
+    const s = await settle(runner);
+    expect(s.status).toBe("error");
+    expect(s.error).toContain("upstream 502");
+  });
+
+  it("no-output error lists the chunk types seen (diagnosable)", async () => {
+    const ctx = fakeCtx([
+      { delay: 10, chunk: { type: "usage", usage: { outputTokens: 0 } } },
+      { delay: 10, chunk: { type: "finish", reason: { kind: "stop" } } },
+    ]);
+    const runner = new SpeedTestRunner(ctx);
+    runner.start("p", "m");
+    const s = await settle(runner);
+    expect(s.status).toBe("error");
+    expect(s.error).toContain("usage×1");
+  });
+});

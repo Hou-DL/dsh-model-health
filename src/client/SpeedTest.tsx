@@ -84,6 +84,18 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
     return () => clearInterval(timer);
   }, [open, running, st?.startedAt]);
 
+  // group known models by provider (mirrors the session model picker)
+  const groups = React.useMemo(() => {
+    const m = new Map<string, KnownModel[]>();
+    for (const km of models) {
+      const key = km.provider || "—";
+      const arr = m.get(key) ?? [];
+      arr.push(km);
+      m.set(key, arr);
+    }
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  }, [models]);
+
   const start = async () => {
     if (running || !sel) return;
     const [provider, model] = sel.split("|");
@@ -164,13 +176,15 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           background: "var(--dsw-alias-bg-layer-3)",
           border: "1px solid var(--dsw-alias-border-l2)",
           borderRadius: 14,
-          width: 760,
+          width: 560,
           maxWidth: "94vw",
+          minHeight: 560,
           boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
-          padding: 20,
+          padding: "24px 24px 18px",
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          justifyContent: "space-between",
+          gap: 18,
         }}
       >
         {/* header */}
@@ -191,10 +205,17 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
         <div style={{ display: "flex", gap: 8 }}>
           <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle} disabled={running}>
             {models.length === 0 ? <option value="">{t("speed.empty")}</option> : null}
-            {models.map((m) => (
-              <option key={`${m.provider}|${m.model}`} value={`${m.provider}|${m.model}`}>
-                {m.model}
-              </option>
+            {groups.map(([provider, list]) => (
+              <optgroup key={provider} label={provider}>
+                {list.map((m) => {
+                  const label = m.model.startsWith(`${provider}/`) ? m.model.slice(provider.length + 1) : m.model;
+                  return (
+                    <option key={`${m.provider}|${m.model}`} value={`${m.provider}|${m.model}`}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </optgroup>
             ))}
           </select>
           <button
