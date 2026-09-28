@@ -1,12 +1,17 @@
 import type { SpeedTestState } from "../types.js";
 
 /**
- * Token-frugal probe: count to 30 with no system prompt. A handful of input
- * tokens and ~maxTokens of output are enough to measure TTFT and decode speed.
+ * Token-frugal probe: count to 300 with no system prompt. The target is sized
+ * so the decode window lasts ~3-6s for most models (stable average speed) and
+ * reasoning models keep headroom above their thinking tokens (a 64-token
+ * budget died on finish_reason=length with 62 reasoning tokens).
  */
-const SPEED_PROMPT = "从 1 数到 30，用逗号分隔，不要输出其他内容";
-const MAX_TOKENS = 64;
-const TIMEOUT_MS = 30_000;
+const SPEED_PROMPT = "从 1 数到 300，用逗号分隔，不要输出其他内容";
+const MAX_TOKENS = 1536;
+const TIMEOUT_MS = 45_000;
+/** ~5s decode window: enough for a stable average, no need to run to the
+ *  token limit — the stream is stopped early and speed derives from deltas. */
+const MEASURE_MS = 5_000;
 
 /** Pure metric derivation: TTFT = first output − start; decode window =
  *  usage arrival − first output; speed = outputTokens / decode window. */
@@ -28,14 +33,16 @@ export function computeMetrics(t0: number, first: number | null, usage: number |
  */
 export class SpeedTestRunner {
   private ctx: any;
+  private opts: { measureMs?: number };
   private st: SpeedTestState = {
     status: "idle", provider: "", model: "", startedAt: null,
     ttftMs: null, decodeMs: null, outputTokens: 0, tokPerSec: null, error: null,
   };
   private running = false;
 
-  constructor(ctx: any) {
+  constructor(ctx: any, opts: { measureMs?: number } = {}) {
     this.ctx = ctx;
+    this.opts = opts;
   }
 
   state(): SpeedTestState {
@@ -78,12 +85,17 @@ export class SpeedTestRunner {
 
   private async run(provider: string, model: string): Promise<void> {
     const t0 = Date.now();
-    const deadline = t0 + TIMEOUT_MS;
     let first: number | null = null;
     let usageTime: number | null = null;
     let tokens = 0;
     let deltas = 0;
     const seen: Record<string, number> = {};
+    const measureMs = this.opts.measureMs ?? MEASURE_MS;
+    const timeoutMs = this.opts.timeoutMs ?? TIMEOUT_MS;
+    // wall-clock watchdog: a stream that stalls WITHOUT yielding never reaches
+    // the per-chunk deadline check, and would hold the single-run slot forever
+    const guard = { live: true };
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
     // models are often recorded as "provider/model"; the route wants the bare name
     const bareModel = model.startsWith(`${provider}/`) ? model.slice(provider.length + 1) : model;
     try {
@@ -104,37 +116,49 @@ export class SpeedTestRunner {
         ],
         maxTokens: MAX_TOKENS,
       };
-      for await (const chunk of llm.stream(options)) {
-        const now = Date.now();
-        if (now > deadline) throw new Error(`speed test timed out after ${TIMEOUT_MS / 1000}s`);
-        const type = chunk?.type;
-        seen[type ?? "unknown"] = (seen[type ?? "unknown"] ?? 0) + 1;
-        if ((type === "text-delta" || type === "reasoning-delta")) {
-          if (typeof chunk.text === "string" && chunk.text.trim() !== "") {
+      const consume = async () => {
+        for await (const chunk of llm.stream(options)) {
+          if (!guard.live) return; // watchdog fired: stop touching state
+          const now = Date.now();
+          const type = chunk?.type;
+          seen[type ?? "unknown"] = (seen[type ?? "unknown"] ?? 0) + 1;
+          if (type === "text-delta" || type === "reasoning-delta") {
+            if (typeof chunk.text === "string" && chunk.text.trim() !== "") {
+              if (first == null) first = now;
+              deltas++;
+            }
+          } else if (type === "tool-call-delta") {
             if (first == null) first = now;
             deltas++;
+          } else if (type === "usage") {
+            usageTime = now;
+            tokens = chunk.usage?.outputTokens ?? tokens;
+          } else if (type === "finish") {
+            const kind = chunk.reason?.kind;
+            if (kind === "error" || kind === "aborted") {
+              throw new Error(String(chunk.reason?.failure?.message ?? `provider stream ${kind}`));
+            }
+            break;
           }
-        } else if (type === "tool-call-delta") {
-          if (first == null) first = now;
-          deltas++;
-        } else if (type === "usage") {
-          usageTime = now;
-          tokens = chunk.usage?.outputTokens ?? tokens;
-        } else if (type === "finish") {
-          const kind = chunk.reason?.kind;
-          if (kind === "error" || kind === "aborted") {
-            throw new Error(String(chunk.reason?.failure?.message ?? `provider stream ${kind}`));
+          // live interim metrics (speedtest-style rising number): each delta is
+          // ~one token, so tok/s ≈ deltas / (now − first)
+          if (first != null && now > first) {
+            const liveTokPerSec = Math.round((deltas / (now - first)) * 1000 * 100) / 100;
+            this.st = { ...this.st, ttftMs: first - t0, tokPerSec: liveTokPerSec };
           }
-          break;
+          // measure window reached: stop early — deltas so far give a stable
+          // average, and running to the token limit adds nothing but waiting
+          if (first != null && now - first >= measureMs) break;
         }
-        // live interim metrics (speedtest-style rising number): each delta is
-        // ~one token, so tok/s ≈ deltas / (now − first)
-        if (first != null && now > first) {
-          const liveTokPerSec = Math.round((deltas / (now - first)) * 1000 * 100) / 100;
-          this.st = { ...this.st, ttftMs: first - t0, tokPerSec: liveTokPerSec };
-        }
-      }
+      };
+      await Promise.race([
+        consume(),
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error(`speed test timed out after ${timeoutMs / 1000}s`)), timeoutMs);
+        }),
+      ]);
       if (usageTime == null) usageTime = Date.now();
+      if (!tokens) tokens = deltas; // early stop: each delta ≈ one token
       if (first == null) {
         const seenStr = Object.entries(seen).map(([k, v]) => `${k}×${v}`).join(", ") || "none";
         throw new Error(`model produced no output (chunks seen: ${seenStr})`);
@@ -151,6 +175,8 @@ export class SpeedTestRunner {
         error: String((e as any)?.message ?? e),
       };
     } finally {
+      guard.live = false;
+      if (watchdog) clearTimeout(watchdog);
       this.running = false;
     }
   }

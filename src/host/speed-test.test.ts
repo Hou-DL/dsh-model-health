@@ -139,3 +139,40 @@ describe("listRoutes (currently available models from the llm service)", () => {
     expect(await runner.listRoutes()).toEqual([]);
   });
 });
+
+describe("5s measure window (early stop)", () => {
+  it("stops after the measure window and estimates speed from delta count", async () => {
+    // a long stream: 30 deltas x 100ms, no usage/finish until the very end
+    const script = Array.from({ length: 30 }, (_, i) => ({
+      delay: 100,
+      chunk: i === 29 ? { type: "finish", reason: { kind: "stop" } } : { type: "text-delta", index: 0, text: "x" },
+    }));
+    const runner = new SpeedTestRunner(fakeCtx(script), { measureMs: 200 });
+    const t0 = Date.now();
+    runner.start("p", "m");
+    const s = await settle(runner);
+    const wall = Date.now() - t0;
+    expect(s.status).toBe("done");
+    expect(wall).toBeLessThan(1500);          // stopped early, not at stream end (~3s)
+    expect(s.decodeMs).toBeGreaterThanOrEqual(200);
+    expect(s.outputTokens).toBeGreaterThan(0); // delta-count estimate
+    expect(s.tokPerSec!).toBeGreaterThan(0);
+  });
+});
+
+describe("stall guard (absolute wall-clock timeout)", () => {
+  it("times out even when the stream stalls without yielding chunks", async () => {
+    // a stream that never yields: the per-chunk deadline check can never run
+    const ctx = { llm: { async *stream() { await sleep(60_000); yield { type: "text-delta", index: 0, text: "x" }; } } };
+    const runner = new SpeedTestRunner(ctx, { timeoutMs: 300 });
+    runner.start("p", "m");
+    const s = await Promise.race([
+      settle(runner),
+      sleep(1500).then(() => runner.state()),
+    ]);
+    expect(s.status).toBe("error");
+    expect(s.error).toContain("timed out");
+    // the slot is freed despite the hanging stream
+    expect(runner.start("p", "m")).toBe(true);
+  });
+});

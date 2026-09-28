@@ -1,16 +1,11 @@
 import * as React from "react";
-import { formatMs } from "./trend.js";
+import { formatMs, formatSpeed } from "./trend.js";
 import type { SpeedTestState } from "../types.js";
 
 type KnownModel = { provider: string; model: string };
 
-/** Speedtest-dialog styles: pulsing probe dot, indeterminate ring spin. */
-const SPEED_CSS = `
-@keyframes mhc-pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.2); } }
-@keyframes mhc-spin { to { transform: rotate(360deg); } }
-.mhc-pulse { animation: mhc-pulse 1s ease-in-out infinite; }
-.mhc-spin { animation: mhc-spin 1.1s linear infinite; transform-origin: 50% 50%; }
-`;
+/** Speedtest-dialog styles (kept minimal — the progress ring is inline SVG). */
+const SPEED_CSS = "";
 
 /** Count-up for the TTFT chip (ease-out cubic). */
 function useCountUp(target: number | null, run: boolean, dur = 800): number {
@@ -185,6 +180,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           flexDirection: "column",
           justifyContent: "space-between",
           gap: 18,
+          userSelect: "none",
         }}
       >
         {/* header */}
@@ -257,9 +253,6 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
                 strokeDashoffset={ARC_LEN * (1 - (running || done ? progress : 0))}
                 style={{ transition: "stroke-dashoffset .6s ease, stroke .3s ease" }}
               />
-              {running ? (
-                <circle cx={110} cy={116} r={5} fill="#4c8dff" className="mhc-pulse" />
-              ) : null}
             </svg>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: 6, textAlign: "center" }}>
               <div
@@ -276,20 +269,21 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
               <div style={{ fontSize: 12, color: "var(--dsw-alias-label-tertiary)", marginTop: 4 }}>tok/s</div>
             </div>
             {running ? (
-              <span
-                className="mhc-spin"
-                style={{
-                  position: "absolute",
-                  right: 18,
-                  top: 4,
-                  width: 14,
-                  height: 14,
-                  border: "2px solid var(--dsw-alias-border-l2)",
-                  borderTopColor: "#4c8dff",
-                  borderRadius: "50%",
-                  display: "inline-block",
-                }}
-              />
+              <svg width={26} height={26} viewBox="0 0 26 26" style={{ position: "absolute", right: 12, top: 0 }} aria-hidden>
+                <circle cx={13} cy={13} r={10} fill="none" stroke="var(--dsw-alias-border-l2)" strokeWidth={3} />
+                <circle
+                  cx={13}
+                  cy={13}
+                  r={10}
+                  fill="none"
+                  stroke="#4c8dff"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 10}
+                  strokeDashoffset={2 * Math.PI * 10 * (1 - Math.min(1, elapsed / 5500))}
+                  style={{ transition: "stroke-dashoffset .15s linear" }}
+                />
+              </svg>
             ) : null}
           </div>
         </div>
@@ -316,7 +310,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
               color: "var(--dsw-alias-label-secondary)",
             }}
           >
-            {isEn ? "Output" : "输出"}: {st?.outputTokens ?? 0} tok
+            {t("speed.avg")}: {st?.tokPerSec != null ? formatSpeed(st.tokPerSec) : "—"}
           </span>
           <span
             style={{
@@ -337,7 +331,6 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           </div>
         ) : null}
 
-        <div style={{ fontSize: 11, color: "var(--dsw-alias-label-tertiary)", textAlign: "center" }}>{t("speed.hint")}</div>
       </div>
     </div>
   );

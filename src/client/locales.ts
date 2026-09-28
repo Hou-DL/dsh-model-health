@@ -35,6 +35,7 @@ export const zh: Record<string, string> = {
   "speed.running": "测速中",
   "speed.ttft": "首字延迟",
   "speed.output": "输出速度",
+  "speed.avg": "平均速度",
   "speed.failed": "测速失败",
   "speed.empty": "暂无历史模型，先跑一次对话",
 };
@@ -76,6 +77,7 @@ export const en: Record<string, string> = {
   "speed.running": "Testing",
   "speed.ttft": "TTFT",
   "speed.output": "Output speed",
+  "speed.avg": "Avg speed",
   "speed.failed": "Test failed",
   "speed.empty": "No known models yet",
 };
