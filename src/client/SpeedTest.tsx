@@ -40,6 +40,13 @@ const ARC_LEN = Math.PI * ARC_R;
  */
 export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p?: any) => string; isEn?: boolean; open: boolean; onClose: () => void }) {
   const [models, setModels] = React.useState<KnownModel[]>([]);
+  const [modelsLoading, setModelsLoading] = React.useState(true);
+  /** true only after THIS dialog session started a run — otherwise a shown
+   *  result is the previous test and must be labeled as such */
+  const [ranHere, setRanHere] = React.useState(false);
+  /** browser-clock start reference: server startedAt can be skewed/stale and
+   *  made the timer read negative (and the progress ring run backwards) */
+  const runStartRef = React.useRef(0);
   const [sel, setSel] = React.useState<string>("");
   const [st, setSt] = React.useState<SpeedTestState | null>(null);
   const [running, setRunning] = React.useState(false);
@@ -58,6 +65,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
         const j = await res.json();
         if (!alive.current) return;
         setModels(Array.isArray(j.models) ? j.models.filter((m: any) => m?.provider && m?.model) : []);
+        setModelsLoading(!!j.modelsLoading);
         if (j.test) setSt(j.test);
         setSel((cur) => {
           if (cur) return cur;
@@ -71,13 +79,17 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
     };
   }, [open]);
 
-  // elapsed ticker while running
+  // reopening the dialog turns the last result back into "previous test"
+  React.useEffect(() => {
+    if (!open) setRanHere(false);
+  }, [open]);
+
+  // elapsed ticker while running — always relative to THIS dialog's click
   React.useEffect(() => {
     if (!open || !running) return;
-    const startedAt = st?.startedAt ?? Date.now();
-    const timer = setInterval(() => setElapsed(Date.now() - startedAt), 100);
+    const timer = setInterval(() => setElapsed(Math.max(0, Date.now() - runStartRef.current)), 100);
     return () => clearInterval(timer);
-  }, [open, running, st?.startedAt]);
+  }, [open, running]);
 
   // group known models by provider (mirrors the session model picker)
   const groups = React.useMemo(() => {
@@ -96,7 +108,9 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
     const [provider, model] = sel.split("|");
     setErr(null);
     setRunning(true);
+    setRanHere(true);
     setElapsed(0);
+    runStartRef.current = Date.now();
     try {
       const res = await fetch("/api/dsh-model-health/speed-test", {
         method: "POST",
@@ -178,8 +192,8 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           padding: "24px 24px 18px",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "space-between",
-          gap: 18,
+          justifyContent: "flex-start",
+          gap: 14,
           userSelect: "none",
         }}
       >
@@ -197,10 +211,10 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           </button>
         </div>
 
-        {/* picker + run */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle} disabled={running}>
-            {models.length === 0 ? <option value="">{t("speed.empty")}</option> : null}
+        {/* model picker on top, run button below (narrower, spaced, nudged down) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, width: "80%", alignSelf: "center", marginTop: 8 }}>
+          <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...selectStyle, width: "100%" }} disabled={running}>
+            {models.length === 0 ? <option value="">{modelsLoading ? t("speed.loading") : t("speed.empty")}</option> : null}
             {groups.map(([provider, list]) => (
               <optgroup key={provider} label={provider}>
                 {list.map((m) => {
@@ -218,9 +232,11 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
             onClick={() => void start()}
             disabled={running || !sel}
             style={{
-              padding: "6px 18px",
-              fontSize: 13,
-              borderRadius: 8,
+              padding: "11px 18px",
+              fontSize: 15,
+              fontWeight: 600,
+              borderRadius: 10,
+              width: "100%",
               border: "1px solid var(--dsw-alias-border-l2)",
               background: running ? "var(--dsw-alias-bg-layer-2)" : "var(--dsw-alias-label-primary)",
               color: running ? "var(--dsw-alias-label-secondary)" : "var(--dsw-alias-bg-layer-3)",
@@ -233,7 +249,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
         </div>
 
         {/* gauge: big live/final tok/s on a semicircular arc */}
-        <div style={{ display: "flex", justifyContent: "center", paddingTop: 4 }}>
+        <div style={{ display: "flex", justifyContent: "center", margin: "auto 0" }}>
           <div style={{ position: "relative", width: 340 }}>
             <svg viewBox="0 0 220 126" width="100%" style={{ display: "block" }}>
               <path
@@ -280,13 +296,21 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
                   strokeWidth={3}
                   strokeLinecap="round"
                   strokeDasharray={2 * Math.PI * 10}
-                  strokeDashoffset={2 * Math.PI * 10 * (1 - Math.min(1, elapsed / 5500))}
+                  strokeDashoffset={2 * Math.PI * 10 * (1 - Math.max(0, Math.min(1, elapsed / 5500)))}
                   style={{ transition: "stroke-dashoffset .15s linear" }}
                 />
               </svg>
             ) : null}
           </div>
         </div>
+
+        {/* result block: previous-test label tight above the result chips */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+        {done && st && !ranHere ? (
+          <div style={{ fontSize: 11, color: "var(--dsw-alias-label-tertiary)", textAlign: "center" }}>
+            {isEn ? "Last test" : "上次测试"} · {st.model} · {new Date(st.startedAt ?? Date.now()).toLocaleString(isEn ? "en" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </div>
+        ) : null}
 
         {/* status / result chips */}
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
@@ -323,6 +347,7 @@ export function SpeedTest({ t, isEn = false, open, onClose }: { t: (k: string, p
           >
             {st?.model || "—"}
           </span>
+        </div>
         </div>
 
         {failed ? (

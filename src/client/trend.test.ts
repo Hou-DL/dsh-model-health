@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dayMetric, pickTopModels, pickTrendModels, buildSeries, summarize, splitSeries, shortModel, seriesPathFixed } from "./trend.js";
+import { dayMetric, pickTopModels, pickTrendModels, buildSeries, summarize, splitSeries, shortModel, seriesPathFixed, chartCeiling } from "./trend.js";
 import { addDays, toDayKey } from "../date-bucket.js";
 
 const weekA = addDays(toDayKey(Date.now()), -21);
@@ -141,5 +141,19 @@ describe("seriesPathFixed (morph-friendly fixed-length path)", () => {
     expect(d1.endsWith("L 20 3")).toBe(true);
     expect(d2.endsWith("L 20 9")).toBe(true);
     expect(d1.startsWith("M 0 0")).toBe(true);
+  });
+});
+
+describe("chartCeiling (outlier-robust y scale)", () => {
+  it("keeps the axis readable when one model is 15x faster than the rest", () => {
+    // real data shape: two ~900 tok/s outliers among 30-60 tok/s models
+    const vals = [31, 36, 41, 49, 51, 52, 908, 950];
+    expect(chartCeiling(vals)).toBe(78); // P75=52 → ×1.5; outliers clip at the top
+  });
+  it("leaves headroom for tightly clustered values", () => {
+    expect(chartCeiling([55, 58, 60, 62, 65])).toBe(93); // P75=62 → ×1.5
+  });
+  it("handles a single sample", () => {
+    expect(chartCeiling([41])).toBeCloseTo(61.5);
   });
 });

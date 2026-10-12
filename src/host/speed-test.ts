@@ -12,6 +12,8 @@ const TIMEOUT_MS = 45_000;
 /** ~5s decode window: enough for a stable average, no need to run to the
  *  token limit — the stream is stopped early and speed derives from deltas. */
 const MEASURE_MS = 5_000;
+/** cache the adapter route enumeration this long (it may hit the network) */
+const ROUTES_TTL_MS = 10 * 60_000;
 
 /** Pure metric derivation: TTFT = first output − start; decode window =
  *  usage arrival − first output; speed = outputTokens / decode window. */
@@ -34,6 +36,11 @@ export function computeMetrics(t0: number, first: number | null, usage: number |
 export class SpeedTestRunner {
   private ctx: any;
   private opts: { measureMs?: number };
+  /** cached available routes (adapter enumeration hits provider networks —
+   *  cache + background refresh keeps the picker instant) */
+  private routes: Array<{ provider: string; model: string }> = [];
+  private routesAt = 0;
+  private routesLoading = false;
   private st: SpeedTestState = {
     status: "idle", provider: "", model: "", startedAt: null,
     ttftMs: null, decodeMs: null, outputTokens: 0, tokPerSec: null, error: null,
@@ -47,6 +54,31 @@ export class SpeedTestRunner {
 
   state(): SpeedTestState {
     return { ...this.st };
+  }
+
+  /** Refresh the routes cache (startup warm-up + main Refresh button).
+   *  Concurrent calls collapse into one adapter round-trip. */
+  async refreshRoutes(): Promise<void> {
+    if (this.routesLoading) return;
+    this.routesLoading = true;
+    try {
+      const r = await this.listRoutes();
+      if (r.length > 0) {
+        this.routes = r;
+        this.routesAt = Date.now();
+      }
+    } finally {
+      this.routesLoading = false;
+    }
+  }
+
+  /** Cached routes + freshness flags (served instantly by the GET route). */
+  getRoutes(): { models: Array<{ provider: string; model: string }>; loading: boolean; stale: boolean } {
+    return {
+      models: this.routes,
+      loading: this.routesLoading,
+      stale: this.routes.length === 0 || Date.now() - this.routesAt > ROUTES_TTL_MS,
+    };
   }
 
   /**

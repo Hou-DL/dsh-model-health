@@ -1,7 +1,7 @@
 import * as React from "react";
 import type { DayHealth } from "../types.js";
 import { toDayKey } from "../date-bucket.ts";
-import { recentDayKeys, pickTrendModels, buildSeries, splitSeries, seriesPathFixed, formatMetric, shortModel, type Metric } from "./trend.js";
+import { recentDayKeys, pickTrendModels, buildSeries, splitSeries, seriesPathFixed, formatMetric, shortModel, chartCeiling, type Metric } from "./trend.js";
 
 /** Distinct, colorblind-tolerant series colors. */
 const COLORS = [
@@ -121,10 +121,12 @@ export function TrendChart({ t, days, isEn = false }: { t: (k: string, p?: any) 
   const plotH = H - PAD.top - PAD.bottom;
   const allVals = visible.flatMap((s) => s.points.filter((v): v is number => v != null));
   const hasPoints = allVals.length > 0;
-  const yMax = niceCeil(Math.max(1, ...allVals));
+  // outlier-robust scale: a 15x-faster historical model must not squash the
+  // rest — values above the ceiling clamp to the top edge
+  const yMax = niceCeil(chartCeiling(allVals));
   const step = dayKeys.length > 1 ? plotW / (dayKeys.length - 1) : plotW;
   const xOf = (i: number) => PAD.left + (dayKeys.length > 1 ? i * step : plotW / 2);
-  const yOf = (v: number) => PAD.top + (1 - v / yMax) * plotH;
+  const yOf = (v: number) => PAD.top + (1 - Math.min(v, yMax) / yMax) * plotH;
 
   const fmtDay = (k: string) => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`;
   const fmtDayLong = (k: string) =>

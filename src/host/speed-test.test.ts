@@ -176,3 +176,30 @@ describe("stall guard (absolute wall-clock timeout)", () => {
     expect(runner.start("p", "m")).toBe(true);
   });
 });
+
+describe("routes cache (instant picker, background refresh)", () => {
+  it("serves cached routes instantly and dedupes concurrent refreshes", async () => {
+    let calls = 0;
+    const ctx = {
+      llm: {
+        listProviders: () => [{ id: "p" }],
+        listModels: async () => {
+          calls++;
+          await sleep(20);
+          return [{ provider: "p", id: "m" }];
+        },
+      },
+    };
+    const runner = new SpeedTestRunner(ctx);
+    // before any refresh: empty + stale
+    expect(runner.getRoutes().models).toEqual([]);
+    expect(runner.getRoutes().stale).toBe(true);
+    // two concurrent refreshes collapse into one adapter round-trip
+    await Promise.all([runner.refreshRoutes(), runner.refreshRoutes()]);
+    expect(calls).toBe(1);
+    const cached = runner.getRoutes();
+    expect(cached.models).toEqual([{ provider: "p", model: "m" }]);
+    expect(cached.stale).toBe(false);
+    expect(cached.loading).toBe(false);
+  });
+});

@@ -12,6 +12,8 @@ export function apply(ctx: any) {
   store.init().catch((e: unknown) => {
     ctx.logger?.warn?.(`dsh-model-health init failed: ${String(e)}`);
   });
+  // warm the routes cache so the speed-test picker opens instantly
+  void speed.refreshRoutes();
 
   ctx.on("session/event", (session: any, event: any) => {
     store.ingest({ ...event, sid: session?.id ?? "" });
@@ -24,6 +26,8 @@ export function apply(ctx: any) {
     try {
       const handler = (_req: any, res: any) => {
         try {
+          // the main Refresh button also refreshes the speed-test model list
+          if (speed.getRoutes().stale && !speed.getRoutes().loading) void speed.refreshRoutes();
           const days = store.getDays();
           const body = JSON.stringify({
             version: 1 as const,
@@ -63,10 +67,10 @@ export function apply(ctx: any) {
           });
           return;
         }
-        // prefer the CURRENTLY available models from the llm registry; fall
-        // back to history-derived routes when the service is unavailable
-        const routes = (await speed.listRoutes().catch(() => [])) ?? [];
-        json(200, { ok: true, test: speed.state(), models: routes.length > 0 ? routes : store.getModels() });
+        // serve the CACHED route list instantly; background-refresh when stale
+        const cached = speed.getRoutes();
+        if (cached.stale && !cached.loading) void speed.refreshRoutes();
+        json(200, { ok: true, test: speed.state(), models: cached.models, modelsLoading: cached.loading || cached.models.length === 0 });
       };
       unregisterRoute = wsCtx.webServer.register({ kind: "exact", path: "/api/dsh-model-health/health.json", handler });
       speedUnregister = wsCtx.webServer.register({ kind: "exact", path: "/api/dsh-model-health/speed-test", handler: speedHandler });

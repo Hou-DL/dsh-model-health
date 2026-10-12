@@ -37,7 +37,8 @@ export const zh: Record<string, string> = {
   "speed.output": "输出速度",
   "speed.avg": "平均速度",
   "speed.failed": "测速失败",
-  "speed.empty": "暂无历史模型，先跑一次对话",
+  "speed.empty": "暂无可用模型",
+  "speed.loading": "加载模型列表中…",
 };
 
 export const en: Record<string, string> = {
@@ -79,7 +80,8 @@ export const en: Record<string, string> = {
   "speed.output": "Output speed",
   "speed.avg": "Avg speed",
   "speed.failed": "Test failed",
-  "speed.empty": "No known models yet",
+  "speed.empty": "No available models",
+  "speed.loading": "Loading models…",
 };
 
 export type LocaleDict = typeof zh;

@@ -254,3 +254,15 @@ export function seriesPathFixed(points: Array<[number, number]>, samples = 89): 
   }
   return head + out;
 }
+
+/**
+ * Outlier-robust chart ceiling: P75 (nearest rank) x 1.5. One model running
+ * 15x faster than the rest must not crush every other line against the axis;
+ * outliers clamp to the top edge instead of stretching the scale.
+ */
+export function chartCeiling(values: number[]): number {
+  if (values.length === 0) return 1;
+  const sorted = [...values].sort((a, b) => a - b);
+  const p75 = sorted[Math.min(sorted.length - 1, Math.ceil(0.75 * sorted.length) - 1)];
+  return Math.max(1, p75 * 1.5);
+}
